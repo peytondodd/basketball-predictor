@@ -159,6 +159,14 @@ def print_rankings(rankings):
         i += 1
 
 
+def save_rankings(rankings):
+    with open('rankings.py', 'w') as rankings_file:
+        rankings_file.write('RANKINGS = [\n')
+        for team in rankings:
+            rankings_file.write('    "%s",\n' % team)
+        rankings_file.write(']\n')
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--conference', help='Optionally specify a particular '
@@ -177,6 +185,7 @@ def main():
     rankings = predict_all_matches(predictor, stats_dict, sorted_net_rating,
                                    teams)
     print_rankings(rankings)
+    save_rankings(rankings)
 
 
 if __name__ == "__main__":
