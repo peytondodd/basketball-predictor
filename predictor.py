@@ -68,9 +68,13 @@ class Predictor:
         return differential_vector(data)
 
     def _create_features(self, data):
-        X = data.drop('pts', 1)
-        X = data.drop('opp_pts', 1)
-        X = data.drop('home_win', 1)
+        fields_to_drop = ['pts', 'opp_pts', 'home_win', 'usg', 'opp_usg']
+        X = data
+        for field in fields_to_drop:
+            try:
+                X = X.drop(field, 1)
+            except ValueError:
+                continue
         y = data.as_matrix(columns=['pts', 'opp_pts'])
         split_data = train_test_split(X, y)
         self._X_train, self._X_test, self._y_train, self._y_test = split_data
