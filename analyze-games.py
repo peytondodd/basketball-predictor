@@ -149,7 +149,12 @@ def create_variance(stats, stdev_dict):
     local_stats = {}
 
     for stat in stats:
-        min_val = -1 * float(stdev_dict[stat])
+        # Metrics that aren't populated in the stdev_dict are filtered out in a
+        # later step and can be ignored.
+        try:
+            min_val = -1 * float(stdev_dict[stat])
+        except KeyError:
+            continue
         max_val = abs(min_val)
         variance = random.uniform(min_val, max_val)
         new_value = float(stats[stat]) + variance

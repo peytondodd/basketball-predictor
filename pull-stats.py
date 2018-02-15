@@ -3,7 +3,10 @@ import json
 import re
 import os
 from bs4 import BeautifulSoup
-from common import include_team_rank, make_request, weighted_sos
+from common import (calc_possessions,
+                    include_team_rank,
+                    make_request,
+                    weighted_sos)
 from constants import POWER_CONFERENCES, YEAR
 from mascots import MASCOTS
 from requests import Session
@@ -12,7 +15,9 @@ from requests import Session
 CONFERENCE_PAGE = 'https://www.sports-reference.com/cbb/seasons/%s.html'
 RANKINGS_PAGE = 'https://www.sports-reference.com/cbb/seasons/%s-polls.html'
 STATS_PAGE = 'http://www.sports-reference.com/cbb/seasons/%s-school-stats.html'
+OPP_STATS_PAGE = 'http://www.sports-reference.com/cbb/seasons/%s-opponent-stats.html'
 ADV_STATS_PAGE = 'http://www.sports-reference.com/cbb/seasons/%s-advanced-school-stats.html'
+OPP_ADV_STATS_PAGE = 'https://www.sports-reference.com/cbb/seasons/%s-advanced-opponent-stats.html'
 RATINGS_PAGE = 'http://www.sports-reference.com/cbb/seasons/%s-ratings.html'
 
 # These stats are already included with the basic stats and should be skipped
@@ -40,6 +45,26 @@ def add_categories(stats):
     return stats
 
 
+def include_pace(stats):
+    poss = calc_possessions(stats['fga'],
+                            stats['fta'],
+                            stats['orb'],
+                            stats['tov'],
+                            stats['opp_fga'],
+                            stats['opp_fta'],
+                            stats['opp_orb'],
+                            stats['opp_tov'])
+    # The 'mp' (minutes played) metric for teams is the total amount of minutes
+    # the team has played, as opposed to the expected total amount of minutes
+    # all players has played. For example, in a regular game, the TEAM plays for
+    # 40 minutes while the PLAYERS play for a total of 200 minutes (40 minutes *
+    # 5 players on the court at a time). Multiplying this number by 5 will give
+    # the expected number of minutes for the pace calculation.
+    pace = 40 * (poss / (0.2 * stats['mp'] * 5))
+    stats['pace'] = pace
+    return stats
+
+
 def parse_advanced_stats(stats_html):
     all_stats = {}
 
@@ -59,19 +84,42 @@ def parse_advanced_stats(stats_html):
     return all_stats
 
 
-def parse_stats_page(stats_page, advanced_stats, rankings, conferences,
+def parse_opp_stats(stats_page):
+    all_stats = {}
+
+    team_stats = stats_page.find_all('tr', class_='')[1:]
+    for team in team_stats:
+        name = None
+        stats = {}
+        for stat in team.find_all('td'):
+            field = str(dict(stat.attrs).get('data-stat'))
+            if field == 'school_name':
+                name = parse_name(str(stat.a['href']))
+            if not field.startswith('opp_') or field == 'opp_mp':
+                continue
+            value = float(stat.get_text())
+            stats[field] = value
+        all_stats[name] = stats
+    return all_stats
+
+
+def parse_stats_page(stats_page, advanced_stats, opp_stats_page,
+                     opp_advanced_stats, rankings, conferences,
                      power_conf_teams, ratings):
     sos_list = []
     teams_list = []
 
     stats_html = BeautifulSoup(stats_page.text, 'lxml')
+    opp_stats_html = BeautifulSoup(opp_stats_page.text, 'lxml')
     adv_stats_html = BeautifulSoup(advanced_stats.text, 'lxml')
+    opp_adv_stats_html = BeautifulSoup(opp_advanced_stats.text, 'lxml')
     sos_tags = stats_html.find_all('td', attrs={'data-stat': 'sos'})
     sos_tags = [float(tag.get_text()) for tag in sos_tags]
     min_sos = min(sos_tags)
     max_sos = max(sos_tags)
 
     advanced = parse_advanced_stats(adv_stats_html)
+    opp_stats = parse_opp_stats(opp_stats_html)
 
     # The first row just describes the stats. Skip it as it is irrelevant.
     team_stats = stats_html.find_all('tr', class_='')[1:]
@@ -106,10 +154,12 @@ def parse_stats_page(stats_page, advanced_stats, rankings, conferences,
         temp = advanced[nickname].copy()
         temp.update(stats)
         temp.update(ratings[nickname])
+        temp.update(opp_stats[nickname])
         stats = temp
 
         stats = add_categories(stats)
         stats = include_team_rank(stats, rank)
+        stats = include_pace(stats)
         stats = weighted_sos(stats, float(sos), stats['win_loss_pct'], max_sos,
                              min_sos)
         write_team_stats_file(nickname, stats, name, rankings, conferences)
@@ -258,13 +308,17 @@ def main():
     rankings = get_rankings(session)
     ratings = get_ratings(session)
     stats_page = get_stats_page(session, STATS_PAGE)
+    opp_stats_page = get_stats_page(session, OPP_STATS_PAGE)
     advanced_stats = get_stats_page(session, ADV_STATS_PAGE)
+    opp_advanced_stats = get_stats_page(session, OPP_ADV_STATS_PAGE)
     if not stats_page:
         print 'Error retrieving stats page'
         return None
     sos_list, max_sos, min_sos = parse_stats_page(stats_page, advanced_stats,
-                                                  rankings, conferences,
-                                                  power_conf_teams, ratings)
+                                                  opp_stats_page,
+                                                  opp_advanced_stats, rankings,
+                                                  conferences, power_conf_teams,
+                                                  ratings)
     save_sos_list(sos_list, max_sos, min_sos)
     save_conferences(conferences)
 

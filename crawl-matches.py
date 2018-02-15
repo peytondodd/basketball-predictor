@@ -2,7 +2,8 @@ import csv
 import os
 import re
 from bs4 import BeautifulSoup
-from common import (include_team_rank,
+from common import (calc_possessions,
+                    include_team_rank,
                     include_wins_and_losses,
                     make_request,
                     weighted_sos)
@@ -73,6 +74,21 @@ def include_sos(stats, name, away=False):
         stats['opp_sos'] = SOS[name]
     else:
         stats['sos'] = SOS[name]
+    return stats
+
+
+def include_pace(stats):
+    poss = calc_possessions(stats['fga'],
+                            stats['fta'],
+                            stats['orb'],
+                            stats['tov'],
+                            stats['opp_fga'],
+                            stats['opp_fta'],
+                            stats['opp_orb'],
+                            stats['opp_tov'])
+    pace = 40 * (poss / (0.2 * stats['mp']))
+    stats['pace'] = pace
+    stats['opp_pace'] = pace
     return stats
 
 
@@ -169,6 +185,7 @@ def get_match_data(session, matches):
         stats = include_wins_and_losses(stats, *records[1])
         stats = include_sos(stats, home_name)
         stats = include_sos(stats, away_name, away=True)
+        stats = include_pace(stats)
         stats = weighted_sos(stats, SOS[home_name], stats['win_pct'])
         stats = weighted_sos(stats, SOS[away_name], stats['win_pct'], away=True)
         save_match_stats(match_name, stats)

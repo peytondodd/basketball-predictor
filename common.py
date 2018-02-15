@@ -216,3 +216,11 @@ def find_nickname_from_name(name):
         name = difflib.get_close_matches(name, TEAMS.keys())[0]
         nickname = TEAMS[name]
     return nickname
+
+
+def calc_possessions(fga, fta, orb, tov, opp_fga, opp_fta, opp_orb, opp_tov):
+    # Calculations are referenced from:
+    # https://www.sports-reference.com/cbb/about/glossary.html
+    possessions = 0.5 * (fga + 0.475 * fta - orb + tov) + \
+                  0.5 * (opp_fga + 0.475 * opp_fta - opp_orb + opp_tov)
+    return possessions
