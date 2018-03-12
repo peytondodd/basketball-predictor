@@ -55,6 +55,10 @@ FIELDS_TO_COMBINE = {
 }
 
 
+def read_team_stats_file(team_filename):
+    return pd.read_csv(team_filename)
+
+
 def include_team_rank(team_stats, ranking, away=False):
     tier1 = 'rank1-5'
     tier2 = 'rank6-10'

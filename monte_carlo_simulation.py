@@ -8,9 +8,11 @@ import requests
 from bs4 import BeautifulSoup
 from conferences import CONFERENCES
 from common import (differential_vector,
+                    extract_stats_components,
                     find_name_from_nickname,
                     find_nickname_from_name,
-                    make_request)
+                    make_request,
+                    read_team_stats_file)
 from constants import YEAR
 from datetime import datetime
 from predictor import Predictor
@@ -26,10 +28,6 @@ SCHEDULE = 'http://www.sports-reference.com/cbb/schools/%s/%s-schedule.html'
 SCORES_PAGE = 'http://www.sports-reference.com/cbb/boxscores/index.cgi?month='
 
 
-def read_team_stats_file(team_filename):
-    return pd.read_csv(team_filename)
-
-
 def convert_team_totals_to_averages(stats):
     fields_to_average = ['mp', 'fg', 'fga', 'fg2', 'fg2a', 'fg3', 'fg3a', 'ft',
                          'fta', 'orb', 'drb', 'trb', 'ast', 'stl', 'blk', 'tov',
@@ -41,19 +39,6 @@ def convert_team_totals_to_averages(stats):
         new_value = float(stats[field]) / num_games
         new_stats.loc[:,field] = new_value
     return new_stats
-
-
-def extract_stats_components(stats, away=False):
-    # Get all of the stats that don't start with 'opp', AKA all of the
-    # stats that are directly related to the indicated team.
-    filtered_columns = [col for col in stats if not str(col).startswith('opp')]
-    stats = stats[filtered_columns]
-    stats = convert_team_totals_to_averages(stats)
-    if away:
-        # Prepend all stats with 'opp_' to signify the away team as such.
-        away_columns = ['opp_%s' % col for col in stats]
-        stats.columns = away_columns
-    return stats
 
 
 def get_winner(game, prediction):
