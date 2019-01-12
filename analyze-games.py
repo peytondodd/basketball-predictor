@@ -32,12 +32,6 @@ class GameInfo:
         self.title = title
 
 
-class Team:
-    def __init__(self, name, abbreviation):
-        self.name = name
-        self.abbreviation = abbreviation
-
-
 class MatchInfo:
     def __init__(self, away, home, away_nickname, home_nickname, top_25,
                  game_time, match_stats):
@@ -136,7 +130,7 @@ def create_variance(stats, stdev_dict):
     return pd.DataFrame([local_stats])
 
 
-def get_stats(stats_filename, stdev_dict, away=False):
+def get_stats(stats, stdev_dict, away=False):
     stats = read_team_stats_file(stats_filename)
     for field in FIELDS_TO_DROP:
         stats.drop(field, 1, inplace=True)
@@ -158,15 +152,13 @@ def get_stats(stats_filename, stdev_dict, away=False):
     return stats
 
 
-def get_match_stats(game, stdev_dict):
+def get_match_stats(game, stdev_dict, home, away):
     # No stats are saved for non-DI schools, so ignore predictions for matchups
     # that include non-DI schools.
     if game['non_di']:
         return None
-    away_stats = get_stats('team-stats/%s' % game['away_abbr'], stdev_dict,
-                           away=True)
-    home_stats = get_stats('team-stats/%s' % game['home_abbr'], stdev_dict,
-                           away=False)
+    away_stats = get_stats(away, stdev_dict, away=True)
+    home_stats = get_stats(home, stdev_dict, away=False)
     match_stats = pd.concat([away_stats, home_stats], axis=1)
     return match_stats
 
@@ -265,19 +257,42 @@ def make_predictions(prediction_stats, games_list, match_info, predictor):
     return prediction_list
 
 
+def drop_stats(home_stats, away_stats):
+    for field in FIELDS_TO_DROP:
+        home_stats.drop('home_%s' % field, 1, inplace=True)
+        away_stats.drop('away_%s' % field, 1, inplace=True)
+    return home_stats, away_stats
+
+
+def update_stats(stats):
+    defensive_rebound_percentage = 100.0 * stats['defensive_rebounds'] /\
+        (stats['defensive_rebounds'] + stats['opp_offensive_rebounds'])
+    stats['defensive_rebound_percentage'] = defensive_rebound_percentage
+    if 'defensive_rating' not in stats and \
+       'offensive_rating' in stats and \
+       'net_rating' in stats:
+        stats['defensive_rating'] = stats['offensive_rating'] - \
+            stats['net_rating']
+    return stats
+
+
 def find_stdev_for_every_stat(teams):
-    stats_list = []
+    stats_dict = {}
     stdev_dict = {}
+    combined_stats = pd.DataFrame()
 
     for team in teams:
-        filename = 'team-stats/%s' % team.abbreviation.lower()
-        stats_list.append(get_stats(filename, None))
-    stats_dataframe = pd.concat(stats_list)
-    for col in stats_dataframe:
-        if col in FIELDS_TO_DROP:
-            continue
-        stdev_dict[col] = stats_dataframe[col].std()
-    return stdev_dict
+        stats = update_stats(team.dataframe)
+        home_stats = extract_stats_components(stats)
+        away_stats = extract_stats_components(stats, away=True)
+        home_stats, away_stats = drop_stats(home_stats, away_stats)
+        stats_dict[team] = home_stats
+        stats_dict['%s_away' % team] = away_stats
+        combined_stats = combined_stats.append(home_stats)
+        combined_stats = combined_stats.append(away_stats)
+    for col in combined_stats.columns.values:
+        stdev_dict[col] = combined_stats[col].std()
+    return stats_dict, stdev_dict
 
 
 def parse_boxscores(predictor, teams, skip_save_to_mongodb):
@@ -285,7 +300,7 @@ def parse_boxscores(predictor, teams, skip_save_to_mongodb):
     match_info = []
     prediction_stats = []
 
-    stdev_dict = find_stdev_for_every_stat(teams)
+    stats_dict, stdev_dict = find_stdev_for_every_stat(teams)
     today = datetime.today()
     today_string = '%s-%s-%s' % (today.month, today.day, today.year)
     for game in Boxscores(today).games[today_string]:
@@ -294,21 +309,21 @@ def parse_boxscores(predictor, teams, skip_save_to_mongodb):
         if game['non_di']:
             continue
         for sim in range(NUM_SIMS):
-            home = Team(game['home_name'], game['home_abbr'])
-            away = Team(game['away_name'], game['away_abbr'])
+            home = teams(game['home_abbr'])
+            away = teams(game['away_abbr'])
             title = '%s at %s' % (away.name, home.name)
             game_info = GameInfo(home, away, title)
             games_list.append(game_info)
-            match_stats = get_match_stats(game, stdev_dict)
+            match_stats = get_match_stats(game, stdev_dict, home, away)
             prediction_stats.append(match_stats)
-            home_name = game['home_name']
-            away_name = game['away_name']
+            home_name = home.name
+            away_name = away.name
             if game['home_rank']:
                 home_name = '(%s) %s' % (game['home_rank'], home_name)
             if game['away_rank']:
                 away_name = '(%s) %s' % (game['away_rank'], away_name)
-            g = MatchInfo(away_name, home_name, game['away_abbr'],
-                          game['home_abbr'], game['top_25'], None, match_stats)
+            g = MatchInfo(away_name, home_name, away.abbreviation,
+                          home.abbreviation, game['top_25'], None, match_stats)
             match_info.append(g)
     predictions = make_predictions(prediction_stats, games_list, match_info,
                                    predictor)
@@ -329,9 +344,9 @@ def arguments():
 def main():
     teams = []
     args = arguments()
-    predictor = Predictor(args.dataset)
-    for team in Teams():
-        teams.append(Team(team.name, team.abbreviation))
+    #predictor = Predictor(args.dataset)
+    predictor = None
+    teams = Teams()
     parse_boxscores(predictor, teams, args.skip_save_to_mongodb)
 
 
